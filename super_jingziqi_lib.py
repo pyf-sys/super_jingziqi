@@ -25,14 +25,13 @@ GAP = 18                   # 小棋盘之间的间隔
 TOTAL = MINI * 3 + GAP * 2 # 整个大棋盘的边长 = 522
 WIDTH = 760                # 窗口宽度
 HEADER_H = 130             # 顶部状态文字区域高度
-BOTTOM_H = 86              # 底部按钮区域高度
-HEIGHT = HEADER_H + TOTAL + BOTTOM_H  # 窗口高度 = 738
+BOTTOM_H = 118            # 底部技能与按钮区域高度
+HEIGHT = HEADER_H + TOTAL + BOTTOM_H  # 窗口高度 = 770
 BOARD_LEFT = (WIDTH - TOTAL) // 2      # 大棋盘左边距 = 119
 BOARD_TOP = HEADER_H                    # 大棋盘上边距 = 130
 PLAY_CENTER = (BOARD_LEFT + TOTAL // 2, BOARD_TOP + TOTAL // 2)  # 大棋盘正中心
-RESTART_RECT = pg.Rect(WIDTH // 2 - 100,
-                       HEADER_H + TOTAL + (BOTTOM_H - 46) // 2,
-                       200, 46)
+BUTTON_Y = HEADER_H + TOTAL + 18
+RESTART_RECT = pg.Rect(WIDTH - 240, BUTTON_Y, 228, 42)
 
 # ---------- 颜色 ----------
 BG           = (238, 238, 240)   # 窗口背景
@@ -46,6 +45,9 @@ DRAW_BG      = (231, 231, 231)   # 平局小棋盘背景
 DRAW_COLOR   = (130, 130, 130)   # “平”字的灰色
 DRAW_MARK    = "draw"            # owners 里表示平局小棋盘
 GOLD         = (255, 200, 40)    # 获胜粒子的金色
+MINE_BG      = (255, 255, 255)   # 雷数小圆底
+MINE_BORDER  = (80, 80, 80)      # 雷数小圆边
+MINE_TEXT    = (55, 55, 55)      # 雷数文字
 HIGHLIGHT_INSET = 8       # 金色获胜高亮框向内缩进，避免贴住大棋盘黑色边界
 # 下一步落子提示：不再画红/蓝粗框，改用淡色底高亮“该去的小棋盘”
 HIGHLIGHT_FREE   = (255, 244, 178)   # 自由落子：可落子小棋盘的淡黄底
@@ -61,6 +63,18 @@ WIN_PATH = os.path.join(ASSETS_DIR, "win.wav")     # 获胜音效
 
 # ---------- 精灵参数 ----------
 POP_MS = 150   # 棋子“弹出”动画时长（毫秒）
+
+# ---------- 扫雷与技能规则 ----------
+MINE_TOTAL = 9
+SKILL_SWAP_BOARDS = "swap_boards"
+SKILL_SWAP_PIECES = "swap_pieces"
+SKILL_FORCE_BOARD = "force_board"
+SKILL_KEYS = (SKILL_SWAP_BOARDS, SKILL_SWAP_PIECES, SKILL_FORCE_BOARD)
+SKILL_NAMES = {
+    SKILL_SWAP_BOARDS: "调换两个小棋盘",
+    SKILL_SWAP_PIECES: "调换两个棋子",
+    SKILL_FORCE_BOARD: "指定对方下一步棋盘",
+}
 
 
 # ---------- 几何换算 ----------
@@ -110,6 +124,41 @@ def cell_from_pos(pos):
 
 
 # ---------- 规则判断 ----------
+def make_mine_setup(rng=None):
+    """随机放置 9 个雷，并预先计算每个格子周围 8 格的雷数。
+
+    返回 (mine_maps, mine_counts)，两者都按 [小棋盘][行][列] 索引。
+    """
+    rng = rng or random
+    mine_cells = rng.sample(range(81), MINE_TOTAL)
+    mine_maps = [[[False for _ in range(3)] for _ in range(3)] for _ in range(9)]
+    for flat in mine_cells:
+        bi, rest = divmod(flat, 9)
+        r, c = divmod(rest, 3)
+        mine_maps[bi][r][c] = True
+
+    mine_counts = [[[0 for _ in range(3)] for _ in range(3)] for _ in range(9)]
+    for bi in range(9):
+        for r in range(3):
+            for c in range(3):
+                total = 0
+                for dr in (-1, 0, 1):
+                    for dc in (-1, 0, 1):
+                        if dr == 0 and dc == 0:
+                            continue
+                        nr, nc = r + dr, c + dc
+                        if 0 <= nr < 3 and 0 <= nc < 3 and mine_maps[bi][nr][nc]:
+                            total += 1
+                mine_counts[bi][r][c] = total
+    return mine_maps, mine_counts
+
+
+def random_skill(rng=None):
+    """从三种技能中等概率随机返回一种。"""
+    rng = rng or random
+    return rng.choice(SKILL_KEYS)
+
+
 def is_board_open(bi, owners):
     """小棋盘是否还能落子（没被任何人赢下、也没下满）。"""
     return owners[bi] == EMPTY
@@ -136,6 +185,41 @@ def next_forced_board(r, c, owners):
     """对手下一步被送去的小棋盘编号；如果那个棋盘已结束则返回 None（自由落子）。"""
     nb = r * 3 + c
     return nb if owners[nb] == EMPTY else None
+
+
+def recompute_owners(boards, owners):
+    """根据当前棋子重算所有小棋盘归属和整局结果。"""
+    for bi in range(9):
+        w, _ = get_winner(boards[bi])
+        if w:
+            owners[bi] = w
+        elif is_draw(boards[bi]):
+            owners[bi] = DRAW_MARK
+        else:
+            owners[bi] = EMPTY
+    return big_winner(owners)
+
+
+def swap_mini_boards(boards, mine_maps, mine_counts, owners, first, second):
+    """调换两个小棋盘的位置，雷布局和已显示数字随棋盘一起移动。"""
+    if first == second:
+        return False
+    boards[first], boards[second] = boards[second], boards[first]
+    mine_maps[first], mine_maps[second] = mine_maps[second], mine_maps[first]
+    mine_counts[first], mine_counts[second] = mine_counts[second], mine_counts[first]
+    recompute_owners(boards, owners)
+    return True
+
+
+def swap_pieces(boards, owners, first, second):
+    """调换两个已有棋子的位置，并重算受影响的归属。"""
+    if first == second:
+        return False
+    bi, r, c = first
+    bj, rr, cc = second
+    boards[bi][r][c], boards[bj][rr][cc] = boards[bj][rr][cc], boards[bi][r][c]
+    recompute_owners(boards, owners)
+    return True
 
 
 def make_move(boards, owners, bi, r, c, turn):
@@ -425,6 +509,23 @@ def draw_mini_overlay(screen, bi, owner, draw_font):
                           rect.centery - img.get_height() // 2))
 
 
+def draw_mine_counts(screen, boards, mine_counts, font):
+    """在已经落子的格子右下角持续显示周围雷数。"""
+    for bi in range(9):
+        rect = mini_rect(bi)
+        for r in range(3):
+            for c in range(3):
+                if boards[bi][r][c] == EMPTY:
+                    continue
+                cx = rect.left + c * MICRO + MICRO - 10
+                cy = rect.top + r * MICRO + MICRO - 10
+                pg.draw.circle(screen, MINE_BG, (cx, cy), 9)
+                pg.draw.circle(screen, MINE_BORDER, (cx, cy), 9, 1)
+                img = font.render(str(mine_counts[bi][r][c]), True, MINE_TEXT)
+                screen.blit(img, (cx - img.get_width() // 2,
+                                  cy - img.get_height() // 2))
+
+
 def draw_big_grid(screen):
     """画大棋盘的粗线（把 9 个小棋盘隔开）和外边框。"""
     pg.draw.rect(screen, BIG_LINE, (BOARD_LEFT, BOARD_TOP, TOTAL, TOTAL), 6)
@@ -449,7 +550,8 @@ def target_highlight(forced, owners, bi, game_over):
     return HIGHLIGHT_FREE
 
 
-def draw_playfield(screen, owners, forced, draw_font, marks, game_over=False):
+def draw_playfield(screen, owners, forced, draw_font, marks, game_over=False,
+                   boards=None, mine_counts=None, count_font=None):
     """画整个棋盘区域：底色/高亮 → 细线 → 粗线 → 棋子精灵 → 结束标记。
 
     marks 是一个 pygame.sprite.Group，里面装着所有已落下的 MarkSprite。
@@ -461,6 +563,8 @@ def draw_playfield(screen, owners, forced, draw_font, marks, game_over=False):
     marks.draw(screen)                     # 精灵组批量绘制棋子
     for bi in range(9):
         draw_mini_overlay(screen, bi, owners[bi], draw_font)
+    if boards is not None and mine_counts is not None and count_font is not None:
+        draw_mine_counts(screen, boards, mine_counts, count_font)
 
 
 def draw_match_mark(screen, winner):
