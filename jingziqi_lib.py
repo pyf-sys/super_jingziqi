@@ -1,20 +1,9 @@
 # -*- coding: utf-8 -*-
-"""井字棋功能库：常量、字体、绘制、胜负判断等（不含主循环）。"""
+"""超级井字棋共享功能：标记、颜色、字体与单盘胜负判断（不含主循环）。"""
 import os
 import pygame as pg
 
-# ---------- 窗口与棋盘尺寸 ----------
-CELL = 200            # 每个格子的边长
-BOARD_TOP = 120       # 棋盘顶部离窗口顶部的距离
-SCREEN_W = CELL * 3   # 窗口宽度 = 600
-SCREEN_H = 800        # 窗口高度
-RESTART_RECT = pg.Rect(SCREEN_W // 2 - 100, SCREEN_H - 60, 200, 42)
-LINE_W = 6            # 棋盘线宽
-MARK_W = 6            # X / O 的线宽
-
-# 颜色（用 RGB 表示）
-BG_COLOR   = (245, 245, 245)   # 背景
-GRID_COLOR = (60, 60, 60)      # 棋盘线
+# ---------- 共享颜色（RGB） ----------
 X_COLOR    = (220, 80, 80)     # X 的红色
 O_COLOR    = (70, 130, 220)    # O 的蓝色
 WIN_COLOR  = (255, 200, 40)    # 获胜高亮的金色
@@ -22,7 +11,7 @@ TEXT_COLOR = (40, 40, 40)      # 普通文字
 BTN_COLOR  = (200, 200, 200)   # 按钮
 BTN_HOVER  = (170, 170, 170)   # 鼠标悬停时的按钮
 
-# 玩家标记
+# ---------- 玩家标记 ----------
 X = "X"
 O = "O"
 EMPTY = ""
@@ -66,38 +55,6 @@ def make_font(size, bold=False):
     return pg.font.Font(None, size)
 
 
-def cell_center(row, col):
-    """返回 (row, col) 格子的中心坐标，用于画棋子、高亮连线。"""
-    x = col * CELL + CELL // 2
-    y = BOARD_TOP + row * CELL + CELL // 2
-    return x, y
-
-
-def draw_grid(screen):
-    """画 3x3 的棋盘（先清空背景，再画 4 条线）。"""
-    screen.fill(BG_COLOR)
-    for i in range(1, 3):
-        # 两条竖线
-        pg.draw.line(screen, GRID_COLOR, (i * CELL, BOARD_TOP),
-                     (i * CELL, BOARD_TOP + 3 * CELL), LINE_W)
-        # 两条横线
-        pg.draw.line(screen, GRID_COLOR, (0, BOARD_TOP + i * CELL),
-                     (3 * CELL, BOARD_TOP + i * CELL), LINE_W)
-
-
-def draw_mark(screen, row, col, player):
-    """在某个格子里画出 X 或 O。"""
-    cx, cy = cell_center(row, col)
-    pad = 40  # 图形边缘到格子边缘的间距
-    if player == X:
-        # X 就是两条交叉的斜线
-        pg.draw.line(screen, X_COLOR, (cx - pad, cy - pad), (cx + pad, cy + pad), MARK_W)
-        pg.draw.line(screen, X_COLOR, (cx - pad, cy + pad), (cx + pad, cy - pad), MARK_W)
-    elif player == O:
-        # O 就是一个空心圆
-        pg.draw.circle(screen, O_COLOR, (cx, cy), CELL // 2 - pad, MARK_W)
-
-
 def get_winner(board):
     """检查是否有人获胜。
 
@@ -123,9 +80,3 @@ def get_winner(board):
 def is_draw(board):
     """所有格子都被占满、且没有人获胜，就是平局。"""
     return all(cell != EMPTY for row in board for cell in row)
-
-
-def render_center(screen, text, font, color, y):
-    """在窗口水平正中、纵坐标 y 的位置显示一行文字。"""
-    img = font.render(text, True, color)
-    screen.blit(img, (SCREEN_W // 2 - img.get_width() // 2, y))
