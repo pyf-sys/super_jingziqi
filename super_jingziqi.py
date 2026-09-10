@@ -43,6 +43,14 @@ def new_empty_boards():
 
 
 def main():
+    """初始化 Pygame、创建一局游戏，并持续运行主循环。
+
+    参数：
+        无。窗口、资源、游戏状态和所有界面状态都在函数内部创建和管理。
+
+    返回：
+        无。关闭窗口或运行结束后退出函数。
+    """
     # 音频初始化要在 pg.init() 之前用 pre_init 设置格式，能降低播放延迟
     pg.mixer.pre_init(22050, -16, 1, 512)
     pg.init()
@@ -83,7 +91,11 @@ def main():
     tip = None                    # (提示文字, 过期毫秒时间戳, 颜色)
 
     def rebuild_marks():
-        """技能移动棋盘或棋子后，按 boards 重建所有棋子精灵。"""
+        """技能移动棋盘或棋子后，按 boards 重建所有棋子精灵。
+
+        参数：
+            无。直接读取外层 main() 中的 boards 和 marks。
+        """
         marks.empty()
         for bi in range(9):
             for r in range(3):
@@ -92,7 +104,16 @@ def main():
                         marks.add(MarkSprite(bi, r, c, boards[bi][r][c]))
 
     def apply_outcome(bw, bline, closed_all):
-        """应用整局胜负结果；返回游戏是否已经结束。"""
+        """根据一次落子或技能结果更新整局胜负状态。
+
+        参数：
+            bw: 大棋盘的胜者，可能是 X、O；没有胜者时为 None。
+            bline: 大棋盘获胜三连的小棋盘坐标列表，元素形式为 (行, 列)。
+            closed_all: 9 个小棋盘是否已经全部结束。
+
+        返回：
+            bool：游戏已经结束时返回 True，否则返回 False。
+        """
         nonlocal winner, win_line, game_over, post_mine_turn
         if bw:
             winner, win_line, game_over = bw, bline, True
@@ -111,7 +132,11 @@ def main():
         return False
 
     def refresh_after_skill():
-        """技能改变棋盘后，重算归属、胜负，并清理失效的目标。"""
+        """技能改变棋盘后，重算归属、胜负，并清理失效的目标。
+
+        参数：
+            无。直接读取并更新外层 main() 中的棋局状态。
+        """
         nonlocal forced, pending_force
         bw, bline, closed_all = recompute_owners(boards, owners)
         if forced is not None and not is_board_open(forced, owners):
@@ -121,7 +146,11 @@ def main():
         apply_outcome(bw, bline, closed_all)
 
     def reset():
-        """开始新的一局。"""
+        """清空当前进度并开始新的一局。
+
+        参数：
+            无。重新创建棋盘、雷、技能和回合状态。
+        """
         nonlocal boards, owners, mine_maps, mine_counts, skills
         nonlocal turn, forced, pending_force, post_mine_turn, winner, win_line, game_over
         nonlocal skill_mode, skill_targets, tip
@@ -143,11 +172,21 @@ def main():
         fx.empty()
 
     def show_tip(msg, color=TIP_COLOR):
+        """在顶部显示一条限时提示。
+
+        参数：
+            msg: 要显示的文字内容。
+            color: 文字颜色，使用 (R, G, B) 三元组；默认是错误提示红色。
+        """
         nonlocal tip
         tip = (msg, pg.time.get_ticks() + 2200, color)
 
     def end_post_mine_turn():
-        """结束踩雷后的技能阶段，把落子权交给对手。"""
+        """结束踩雷后的技能阶段，把落子权交给对手。
+
+        参数：
+            无。会清除技能选择状态，并切换当前回合玩家。
+        """
         nonlocal turn, post_mine_turn, skill_mode, skill_targets, tip
         post_mine_turn = False
         turn = O if turn == X else X
@@ -156,7 +195,12 @@ def main():
         tip = None
 
     def choose_skill(skill):
-        """点击技能按钮，进入目标选择状态。"""
+        """点击技能按钮，进入对应技能的目标选择状态。
+
+        参数：
+            skill: 技能标识，取值为 SKILL_SWAP_BOARDS、
+                SKILL_SWAP_PIECES 或 SKILL_FORCE_BOARD。
+        """
         nonlocal skill_mode, skill_targets, tip
         if skill_mode == skill:
             skill_mode = None
@@ -179,7 +223,13 @@ def main():
             show_tip("请选择对手下一步必须去的小棋盘", SKILL_COLOR)
 
     def handle_skill_click(cell):
-        """处理技能目标点击。cell 为 (小棋盘, 行, 列) 或 None。"""
+        """处理当前技能的目标点击，并在目标齐全后执行技能。
+
+        参数：
+            cell: 鼠标位置对应的棋盘格，形式为 (bi, r, c)。
+                bi 是小棋盘编号（0~8），r 和 c 是小棋盘内的行列（0~2）。
+                点击位置不在棋盘格内时传入 None。
+        """
         nonlocal skill_mode, skill_targets, pending_force, forced
         if cell is None:
             show_tip("请点击棋盘区域来选择技能目标")
@@ -240,6 +290,15 @@ def main():
             show_tip(f"已指定对手下一步去小棋盘 {bi + 1}", SKILL_COLOR)
 
     def draw_skill_button(rect, label, enabled, active, mouse_pos):
+        """绘制一个技能按钮及其状态。
+
+        参数：
+            rect: 按钮的屏幕矩形，决定位置和大小。
+            label: 按钮上显示的文字，包含技能名称和剩余次数。
+            enabled: 按钮当前是否可用；False 时显示为禁用状态。
+            active: 该技能是否正在选择目标；True 时使用高亮底色。
+            mouse_pos: 当前鼠标坐标 (x, y)，用于判断是否显示悬停颜色。
+        """
         if active:
             color = SKILL_ACTIVE
         elif not enabled:
