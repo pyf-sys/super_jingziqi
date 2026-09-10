@@ -12,10 +12,10 @@
 
 扫雷与技能：
 - 棋盘里藏有 9 个雷；每落一子，格子右下角会持续显示同棋盘周围 8 格的雷数。
-- 踩雷后随机获得一种技能，技能可在自己落子前点击底部按钮使用。
+- 踩雷后随机获得一种技能，并立即进入技能回合；可连续使用技能，点击“结束回合”后再交给对手。
 - 调换两个小棋盘；调换两个棋子；指定对手下一步去哪个小棋盘。
 
-操作：鼠标落子；右键或 ESC 取消技能选择；R 重新开始；M 开关声音。
+操作：鼠标落子；右键或 ESC 取消技能选择；空格/回车结束技能回合；R 重新开始；M 开关声音。
 """
 import pygame as pg
 
@@ -92,6 +92,7 @@ def main():
     turn = X                      # 当前轮到谁
     forced = None                 # 必须去的小棋盘编号；None 表示自由落子
     pending_force = None          # 技能：当前玩家落子后，对手必须去的棋盘
+    post_mine_turn = False        # 踩雷后的立即技能阶段；结束后才换手
     winner = None                 # 整局胜者；"draw" 表示平局
     win_line = []                 # 获胜的三个小棋盘
     game_over = False
@@ -110,16 +111,18 @@ def main():
 
     def apply_outcome(bw, bline, closed_all):
         """应用整局胜负结果；返回游戏是否已经结束。"""
-        nonlocal winner, win_line, game_over
+        nonlocal winner, win_line, game_over, post_mine_turn
         if bw:
             winner, win_line, game_over = bw, bline, True
             for br, bc in win_line:
                 burst_at(fx, mini_center(br * 3 + bc), GOLD, 10)
             burst_at(fx, PLAY_CENTER, GOLD, 16)
+            post_mine_turn = False
             audio.play_win()
             return True
         if closed_all:
             winner, win_line, game_over = "draw", [], True
+            post_mine_turn = False
             burst_at(fx, PLAY_CENTER, GREY, 14)
             return True
         winner, win_line, game_over = None, [], False
@@ -138,7 +141,7 @@ def main():
     def reset():
         """开始新的一局。"""
         nonlocal boards, owners, mine_maps, mine_counts, skills
-        nonlocal turn, forced, pending_force, winner, win_line, game_over
+        nonlocal turn, forced, pending_force, post_mine_turn, winner, win_line, game_over
         nonlocal skill_mode, skill_targets, tip
         boards = new_empty_boards()
         owners = [EMPTY] * 9
@@ -147,6 +150,7 @@ def main():
         turn = X
         forced = None
         pending_force = None
+        post_mine_turn = False
         winner = None
         win_line = []
         game_over = False
@@ -159,6 +163,15 @@ def main():
     def show_tip(msg, color=TIP_COLOR):
         nonlocal tip
         tip = (msg, pg.time.get_ticks() + 2200, color)
+
+    def end_post_mine_turn():
+        """结束踩雷后的技能阶段，把落子权交给对手。"""
+        nonlocal turn, post_mine_turn, skill_mode, skill_targets, tip
+        post_mine_turn = False
+        turn = O if turn == X else X
+        skill_mode = None
+        skill_targets = []
+        tip = None
 
     def choose_skill(skill):
         """点击技能按钮，进入目标选择状态。"""
@@ -185,7 +198,7 @@ def main():
 
     def handle_skill_click(cell):
         """处理技能目标点击。cell 为 (小棋盘, 行, 列) 或 None。"""
-        nonlocal skill_mode, skill_targets, pending_force
+        nonlocal skill_mode, skill_targets, pending_force, forced
         if cell is None:
             show_tip("请点击棋盘区域来选择技能目标")
             return
@@ -236,7 +249,10 @@ def main():
                 show_tip("这个小棋盘已经结束，不能指定")
                 return
             skills[turn][SKILL_FORCE_BOARD] -= 1
-            pending_force = bi
+            if post_mine_turn:
+                forced = bi
+            else:
+                pending_force = bi
             skill_mode = None
             skill_targets = []
             show_tip(f"已指定对手下一步去小棋盘 {bi + 1}", SKILL_COLOR)
@@ -278,6 +294,8 @@ def main():
                         running = False
                 elif ev.key == pg.K_m:
                     audio.toggle_mute()
+                elif ev.key in (pg.K_RETURN, pg.K_SPACE) and post_mine_turn:
+                    end_post_mine_turn()
             elif ev.type == pg.MOUSEBUTTONDOWN:
                 if ev.button == 3:
                     if skill_mode is not None:
@@ -290,7 +308,10 @@ def main():
 
                 mx, my = ev.pos
                 if RESTART_RECT.collidepoint(mx, my):
-                    reset()
+                    if post_mine_turn:
+                        end_post_mine_turn()
+                    else:
+                        reset()
                     continue
                 if game_over:
                     continue
@@ -307,6 +328,9 @@ def main():
                 cell = cell_from_pos((mx, my))
                 if skill_mode is not None:
                     handle_skill_click(cell)
+                    continue
+                if post_mine_turn:
+                    show_tip("请先使用技能，或点击“结束回合”")
                     continue
 
                 if cell is None:
@@ -340,12 +364,14 @@ def main():
                         burst_at(fx, cell_center(bi, r, c), MINE_COLOR, 12)
 
                     if not apply_outcome(bw, bline, closed_all):
-                        turn = O if turn == X else X
                         if gained_skill is not None:
+                            post_mine_turn = True
                             show_tip(
-                                f"{mover} 踩到雷！获得技能：{SKILL_NAMES[gained_skill]}",
+                                f"{mover} 踩到雷！获得技能：{SKILL_NAMES[gained_skill]}，可立即使用",
                                 SKILL_COLOR,
                             )
+                        else:
+                            turn = O if turn == X else X
 
         # ---------- 2. 更新精灵 ----------
         marks.update(now)
@@ -372,7 +398,10 @@ def main():
             render_center(screen, "按 R 或点击右下角按钮再来一局", sub_font, TEXT_COLOR, 78)
         else:
             color = X_COLOR if turn == X else O_COLOR
-            render_center(screen, f"轮到 {turn} 落子", status_font, color, 18)
+            if post_mine_turn:
+                render_center(screen, f"{turn} 技能回合", status_font, SKILL_COLOR, 18)
+            else:
+                render_center(screen, f"轮到 {turn} 落子", status_font, color, 18)
             if tip and now < tip[1]:
                 render_center(screen, tip[0], sub_font, tip[2], 82)
             elif skill_mode == SKILL_SWAP_BOARDS:
@@ -391,6 +420,12 @@ def main():
             elif skill_mode == SKILL_FORCE_BOARD:
                 render_center(screen, "指定落点：请选择对手下一步的小棋盘",
                               sub_font, SKILL_COLOR, 82)
+            elif post_mine_turn:
+                if forced is not None:
+                    msg = f"可使用其他技能；结束后，对手将去小棋盘 {forced + 1}"
+                else:
+                    msg = "可立即使用技能；完成后点击右下角“结束回合”"
+                render_center(screen, msg, sub_font, SKILL_COLOR, 82)
             elif pending_force is not None:
                 render_center(screen, f"当前落子后，对手将被送到小棋盘 {pending_force + 1}",
                               sub_font, SKILL_COLOR, 82)
@@ -409,11 +444,17 @@ def main():
             label = f"{SKILL_BUTTON_LABELS[skill]} ×{count}"
             draw_skill_button(rect, label, enabled, skill_mode == skill, mouse_pos)
 
-        # 右下角“再来一局”按钮
-        btn_color = BTN_HOVER if RESTART_RECT.collidepoint(mouse_pos) else BTN_COLOR
+        # 右下角按钮：踩雷技能阶段显示“结束回合”，其余时候显示“再来一局”
+        hovering = RESTART_RECT.collidepoint(mouse_pos)
+        if post_mine_turn:
+            btn_color = SKILL_ACTIVE if hovering else (255, 242, 180)
+            btn_text = "结束回合"
+        else:
+            btn_color = BTN_HOVER if hovering else BTN_COLOR
+            btn_text = "再来一局"
         pg.draw.rect(screen, btn_color, RESTART_RECT, border_radius=10)
         pg.draw.rect(screen, (70, 70, 70), RESTART_RECT, 2, border_radius=10)
-        btn_img = btn_font.render("再来一局", True, TEXT_COLOR)
+        btn_img = btn_font.render(btn_text, True, TEXT_COLOR)
         screen.blit(btn_img, (RESTART_RECT.centerx - btn_img.get_width() // 2,
                               RESTART_RECT.centery - btn_img.get_height() // 2))
 
